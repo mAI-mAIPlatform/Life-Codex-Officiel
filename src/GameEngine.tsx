@@ -38,6 +38,27 @@ export function GameEngine(): JSX.Element {
   const aiScheduler = useMemo(() => new BucketAIScheduler(Array.from({ length: 1200 }, (_, i) => i), 6), []);
 
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Corrige un bug de rendu flou: le canvas suit la taille réelle + devicePixelRatio.
+    const resizeCanvas = () => {
+      const parentBounds = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+
+      const width = Math.max(1, Math.round(parentBounds.width * dpr));
+      const height = Math.max(1, Math.round(parentBounds.height * dpr));
+
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+    };
+
+    resizeCanvas();
+    const observer = new ResizeObserver(resizeCanvas);
+    observer.observe(canvas);
+
     // Lifecycle init: world + pools + workers.
     const streaming = new ChunkStreamingManager({ chunkSizeMeters: 100 });
     const pool = new EntityPool(10_000);
@@ -48,13 +69,14 @@ export function GameEngine(): JSX.Element {
     workerBridgeRef.current = workerBridge;
 
     // Les workers sont optionnels au runtime (SSR/tests): garde robuste.
-    if (typeof Worker !== 'undefined') {
+    const supportsWorkers = typeof Worker !== 'undefined' && typeof SharedArrayBuffer !== 'undefined';
+    if (supportsWorkers) {
       try {
-        workerBridge.createChannel('physics', new Worker(new URL('./workers/physics.worker.ts', import.meta.url)));
-        workerBridge.createChannel('pathfinding', new Worker(new URL('./workers/pathfinding.worker.ts', import.meta.url)));
-        workerBridge.createChannel('procgen', new Worker(new URL('./workers/procgen.worker.ts', import.meta.url)));
+        workerBridge.createChannel('physics', new Worker(new URL('./workers/physics.worker.ts', import.meta.url), { type: 'module' }));
+        workerBridge.createChannel('pathfinding', new Worker(new URL('./workers/pathfinding.worker.ts', import.meta.url), { type: 'module' }));
+        workerBridge.createChannel('procgen', new Worker(new URL('./workers/procgen.worker.ts', import.meta.url), { type: 'module' }));
       } catch {
-        // En dev sans bundler worker prêt, on continue sans crash.
+        // En dev sans bundler worker prêt (ou sans isolement SAB), on continue sans crash.
       }
     }
 
@@ -74,12 +96,19 @@ export function GameEngine(): JSX.Element {
           setChunks(active);
         },
         render: (ctx: UpdateContext) => {
-          const canvas = canvasRef.current;
-          const context = canvas?.getContext('2d');
-          if (!context || !canvas) return;
+          const context = canvas.getContext('2d');
+          if (!context) return;
 
           context.clearRect(0, 0, canvas.width, canvas.height);
           context.fillStyle = '#0f172a';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+
+          // Fond animé léger pour rendre la scène immédiatement lisible.
+          const waveX = (Math.sin(ctx.nowMs * 0.0012) * 0.5 + 0.5) * canvas.width;
+          const gradient = context.createRadialGradient(waveX, canvas.height * 0.35, 10, waveX, canvas.height * 0.35, canvas.width * 0.55);
+          gradient.addColorStop(0, 'rgba(56, 189, 248, 0.26)');
+          gradient.addColorStop(1, 'rgba(15, 23, 42, 0)');
+          context.fillStyle = gradient;
           context.fillRect(0, 0, canvas.width, canvas.height);
 
           fpsSamples += 1;
@@ -105,6 +134,7 @@ export function GameEngine(): JSX.Element {
 
     return () => {
       // Lifecycle dispose propre.
+      observer.disconnect();
       loop.stop();
       workerBridge.shutdown();
       pool.dispose();
@@ -114,7 +144,7 @@ export function GameEngine(): JSX.Element {
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <canvas ref={canvasRef} width={1280} height={720} style={{ width: '100%', height: '100%', display: 'block' }} />
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
 
       {/* Overlay Liquid Glass: translucide + blur + border lumineux. */}
       <aside
