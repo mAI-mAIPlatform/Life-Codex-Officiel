@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BucketAIScheduler, LoopManager, UpdateContext } from './core/LoopManager';
 import { WorkerBridge } from './core/WorkerBridge';
 import { ChunkState, ChunkStreamingManager } from './core/streaming';
@@ -56,8 +56,10 @@ export function GameEngine(): JSX.Element {
     };
 
     resizeCanvas();
-    const observer = new ResizeObserver(resizeCanvas);
-    observer.observe(canvas);
+    // Fallback pour environnements Electron/WebView anciens sans ResizeObserver.
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resizeCanvas) : null;
+    observer?.observe(canvas);
+    window.addEventListener('resize', resizeCanvas);
 
     // Lifecycle init: world + pools + workers.
     const streaming = new ChunkStreamingManager({ chunkSizeMeters: 100 });
@@ -134,7 +136,8 @@ export function GameEngine(): JSX.Element {
 
     return () => {
       // Lifecycle dispose propre.
-      observer.disconnect();
+      observer?.disconnect();
+      window.removeEventListener('resize', resizeCanvas);
       loop.stop();
       workerBridge.shutdown();
       pool.dispose();

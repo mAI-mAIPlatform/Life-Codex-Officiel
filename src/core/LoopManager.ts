@@ -35,7 +35,7 @@ export interface LoopConfig {
 export class BucketAIScheduler implements IAIScheduler {
   private readonly buckets: EntityId[][];
 
-  constructor(entities: EntityId[], private readonly slicesPerFrame = 4) {
+  constructor(entities: EntityId[], slicesPerFrame = 4) {
     const safeSlices = Math.max(1, slicesPerFrame);
     this.buckets = Array.from({ length: safeSlices }, () => []);
 
